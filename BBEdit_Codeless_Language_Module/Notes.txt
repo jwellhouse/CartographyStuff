@@ -1,0 +1,13 @@
+These are Codeless Language Modules for BBEdit. They will allow automatic colouring of GMT scripts edited in BBEdit.
+
+Per directions here:
+
+http://www.barebones.com/support/develop/clm.html
+
+one of these should be placed in the "Language Modules" subfolder of BBEdit's application support folder normally located in 
+/Users/USERNAME/Library/Application Support/BBEdit/
+
+ShellVars will colour shell script variables in the form ${VARIABLE_NAME} in the same colour as strings.
+
+Normal will give ${VARIABLE_NAME} blocks the same colour as plain text.
+
