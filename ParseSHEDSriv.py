@@ -40,6 +40,9 @@ Author: Joseph Wellhouse
 Last Update: 2020-07-13
 """
 
+# TODO bounds based on grid
+# TODO blocking file to remove certain segments
+
 __version__ = "0.0.2"
 __author__ = "Joseph Wellhouse"
 
@@ -100,6 +103,9 @@ parser.add_argument("-pc", "--PenColour", action="store",
                     help="Set pen colour which will be added to segment header. -hp for details.")
 parser.add_argument("-pw", "--PenWidth", action="store",
                     help="Set pen width which will be added to segment header. -hp for details.")
+                    
+parser.add_argument("-B", "-b", "--Bounds", action="store", nargs=4, type=float,
+                    help="Set limits on which segments to output based on location.\nOnly the first point in the segment will be checked. Others may leave the boundry.\nFormat: -b W E S N \nUse decimal notation and - for south and west.")
                     
 parser.add_argument("InputFile", action="store", nargs=1, 
                     help="Name of input file. Either relative or full path.")
@@ -190,6 +196,80 @@ if (args.PenColour is None) and (args.PenWidth is None):
 else:
     SEGMENT_HEADER_IS_SIMPLE = False
     
+if args.Bounds is not None:
+    CopyWithinBounds = True
+    # Check Lat
+    if (args.Bounds[2] < args.Bounds[3]):
+        if RUN_LOUD:
+            print('Southern limit is south of northern')
+    else:
+        print('ERROR southern limit {} is not south of northern {}'.format(args.Bounds[2], args.Bounds[3]))
+        exit(7)
+    
+        
+    # Southern limit should be somewhere on earth and south of northern limit
+    if (args.Bounds[2] >= -90.0) and (args.Bounds[2] <= 90.0):
+        if RUN_LOUD:
+            print('Southern limit is good')
+    else:
+        print('ERROR with southern limit {}'.format(args.Bounds[2]))
+        exit(7)
+    
+    # Northern limit should be somewhere on earth and north of Southern limit
+    if (args.Bounds[3] >= -90.0) and (args.Bounds[3] <= 90.0):
+        if RUN_LOUD:
+            print('Northern limit is good')
+    else:
+        print('ERROR with northern limit {}'.format(args.Bounds[3]))
+        exit(7)
+        
+    # Check Lon
+    if (args.Bounds[0] != args.Bounds[1]):
+        if RUN_LOUD:
+            print('Western limit different from eastern')
+    else:
+        print('ERROR western limit {} is the same as eastern {}'.format(args.Bounds[0], args.Bounds[1]))
+        exit(7)
+    
+    # West limit should be somewhere on earth and west of eastern limit (but the sphere is continuous so...)
+    if (args.Bounds[0] >= -180.0) and (args.Bounds[0] <= 180.0) and (args.Bounds[0] != args.Bounds[1]):
+        if RUN_LOUD:
+            print('Western limit is good')
+    else:
+        print('ERROR with Western limit {}'.format(args.Bounds[0]))
+        exit(7)
+    
+    # East limit should be somewhere on earth and east of western limit (but the sphere is continuous so...)
+    if (args.Bounds[1] >= -180.0) and (args.Bounds[1] <= 180.0) and (args.Bounds[0] != args.Bounds[1]):
+        if RUN_LOUD:
+            print('Eastern limit is good')
+    else:
+        print('ERROR with eastern limit {}'.format(args.Bounds[1]))
+        exit(7)
+
+    if args.Bounds[0] <  args.Bounds[1]:
+        if RUN_LOUD:
+            print('Does not cross dateline')
+        BoundsIncDateline = False
+    else:
+        if RUN_LOUD:
+            print('Bounds include the dateline. Now things are complicated')
+        BoundsIncDateline = True
+    
+    if not RUN_SILENT:
+        print("Limits are W: {} E: {} S: {} N: {} Dateline crossed: {}".format(args.Bounds[0],args.Bounds[1],args.Bounds[2],args.Bounds[3],BoundsIncDateline))
+    
+    
+    SimpleBounds = args.Bounds.copy()
+    #print(SimpleBounds)
+    SimpleBounds.append(BoundsIncDateline)
+    #print(SimpleBounds)
+    
+else:
+    # args.Bounds is None
+    CopyWithinBounds = False
+    
+#print(SimpleBounds)
     
 # Exceptions
 class UpstreamCountError(Exception):
@@ -258,6 +338,68 @@ def UpstreamCellsWithinLimits(UpstreamCount):
     elif UpstreamCount > MAX_UPSTREAM:
         return False
     else:
+        return True
+        
+def RangeIncDateline(Wlimit,Elimit):
+    if Wlimit <  Elimit:
+        if RUN_LOUD:
+            print('Does not cross dateline')
+        BoundsIncDateline = False
+    else:
+        if RUN_LOUD:
+            print('Bounds include the dateline. Now things are complicated')
+        BoundsIncDateline = True
+        
+    return BoundsIncDateline
+
+#def PointWithinBoundry(Lat,Lon,Wlimit,Elimit,Slimit,Nlimit):
+def PointWithinBoundry(Lat,Lon,Bounds):
+    if isinstance(Bounds, list) and (len(Bounds) == 5 ):
+        Wlimit = Bounds[0]
+        Elimit = Bounds[1]
+        Slimit = Bounds[2]
+        Nlimit = Bounds[3]
+        BoundsIncDateline = Bounds[4]
+    else:
+        print('ERROR bounds in PointWithinBoundry not valid')
+        exit(8)
+        
+    #print(Lat,Lon,Wlimit,Elimit,Slimit,Nlimit)
+
+    #BoundsIncDateline = RangeIncDateline(Wlimit,Elimit)
+    
+    if (Lat <= Nlimit) and (Lat >= Slimit):
+        # In the limit, check longitude 
+        pass
+    else:
+        #print("Lat out of limit")
+        return False
+
+    
+    if not BoundsIncDateline:
+        if (Lon <= Elimit) and (Lon >= Wlimit):
+            return True
+        else:
+            return False
+    else:
+        # split across International Dateline
+        if (Lon >= Wlimit) and (Lon <= 180.0):
+            return True
+        elif (Lon >= -180.0) and (Lon <= Elimit):
+            return True
+        else:
+            return False
+
+def CheckBounds(Lat,Lon):
+    global CopyWithinBounds
+    global SimpleBounds
+    
+    if CopyWithinBounds is not False:
+        if CopyWithinBounds is True:
+            # Simple boundaries
+            return PointWithinBoundry(Lat,Lon,SimpleBounds)
+    else:
+        #print("Just returning true (Error if bounds set)")
         return True
 
 def CreatePenWidth(UpstreamCount):
@@ -449,6 +591,9 @@ LargestUpstreamCells = 0
 
 SegmentHeaderFound = False
 SkipThisSegment = False
+AboutToCopyFirstSegmentLine = False
+
+SavedCommentLine = ''
 
 for line in InFile:
     CountLines += 1
@@ -481,26 +626,68 @@ for line in InFile:
         if UpstreamCellsWithinLimits(UpstreamCells):
             CountSegmentsCopied += 1
             SkipThisSegment = False
+            AboutToCopyFirstSegmentLine = True
             
-            if SEGMENT_HEADER_IS_SIMPLE:
-                OutFile.write(">\n")
-            else:
-                OutFile.write(CreateSegmentHeader(UpstreamCells))
         else:
             SkipThisSegment = True
             
+    # Skip line if only white space (\n etc)
+    if line.isspace():
+        pass
     
     # Skip segment headers and set flag to add them back.
-    if line[0] == ">":
+    elif line[0] == ">":
         SegmentHeaderFound = True
         
-    # Skip segments including comment lines
+    # Skip segments including comment lines if previously identified for skipping
     elif SkipThisSegment:
         pass
         
     # Reproduce each comment line as is
     elif line[0] == "#":
-        OutFile.write(line)
+        if AboutToCopyFirstSegmentLine:
+            SavedCommentLine = line
+        else:
+            OutFile.write(line)
+    
+            
+    
+    # check for in bounds on first line if enabled
+    elif line[1].isdigit() and AboutToCopyFirstSegmentLine:
+        # If any bounding is set
+        if CopyWithinBounds is not False:
+            AboutToCopyFirstSegmentLine = False
+        
+            # Order in gmt files is Lon Lat 142.245833333334 -10.133333333333
+            Lon,Lat = line.split()
+            Lat = float(Lat)
+            Lon = float(Lon)
+        
+            if CheckBounds(Lat,Lon):
+            
+                if SEGMENT_HEADER_IS_SIMPLE:
+                    OutFile.write(">\n")
+                else:
+                    OutFile.write(CreateSegmentHeader(UpstreamCells))
+                
+                OutFile.write(SavedCommentLine)
+                OutFile.write(line)
+            else:
+                SkipThisSegment = True
+                
+        # else no bounding is set
+        else:
+            AboutToCopyFirstSegmentLine = False
+            
+            if SEGMENT_HEADER_IS_SIMPLE:
+                OutFile.write(">\n")
+            else:
+                OutFile.write(CreateSegmentHeader(UpstreamCells))
+            
+            OutFile.write(SavedCommentLine)
+            OutFile.write(line)
+                    
+
     
     #  Reproduce each data line as is. The first character might be a minus. 
     elif line[1].isdigit():
