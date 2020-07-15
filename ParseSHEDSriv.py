@@ -1,7 +1,7 @@
 """
 Parse SHEDS riv is a Python program to parse HydroSHEDS river network (riv) data for GMT.
 
-Usage: ParseSHEDSriv.py InputFile.gmt OutputFile.gmt
+Usage: python3 ParseSHEDSriv.py InputFile.gmt OutputFile.gmt
 
 Input: HydroSHEDS River Network file converted to GMT text format 
         (exempli gratia au_riv_15s_Converted.gmt)
@@ -35,6 +35,16 @@ Note that the license requires an attribution. Details on the license page.
 The Author is not affiliated with HydroSHEDS.
 
 Run with -h for help and -hp for further help on pens.
+
+Object: This may be run as an object. Import ParseSHEDSriv and instantiate the class
+SHEDSrivParser. Then run ParseRIV(). For example
+
+import ParseSHEDSriv
+
+TheParser = ParseSHEDSriv.SHEDSrivParser(InFile,OutFile, *optional options)
+TheParser.ParseRIV()
+
+See ParseSHEDSriv.SHEDSrivParser.__doc__ for details.
 
 Author: Joseph Wellhouse
 Last Update: 2020-07-14
@@ -109,12 +119,28 @@ class InitInputError(Exception):
 class SHEDSrivParser:
     """
     Class wrapper for parsing HydroSHEDS river network (riv) data for GMT. 
+    
     Users should review carefully the license at https://www.hydrosheds.org/page/license
     Note that the license requires an attribution. Details on the license page.
 
     The Author is not affiliated with HydroSHEDS.
     
     See __doc__ for ParseSHEDSriv.py for details.
+    
+    Required inputs: InputFile, OutputFile
+    
+    Optional inputs:    ThresholdHigh=None, 
+                        ThresholdLow=None, 
+                        PenColour=None, 
+                        PenWidth=None, 
+                        SimpleBounds=None,
+                        BoundsFile=None,
+                        RunLoud=False, 
+                        RunSilent=False, 
+                        OutputForHistogram=False, 
+                        Overwrite=False
+                        
+    Run <SHEDSrivParser object name>.ParseRIV() after instantiating.
     
     """
 
@@ -179,29 +205,35 @@ class SHEDSrivParser:
         else:
             raise InitInputError("ThresholdLow",ThresholdLow,'ERROR SHEDSrivParser class init - ThresholdLow should be int, received {} of type {}'.format(ThresholdLow, type(ThresholdLow)))
 
-        if isinstance(SimpleBounds, list) and (SimpleBounds is not None):
-            if len(SimpleBounds) == 4:
-                if self.ValidateSimpleBounds(SimpleBounds):
+        if SimpleBounds is not None:
+            if isinstance(SimpleBounds, list):
+                if len(SimpleBounds) == 4:
+                    if self.ValidateSimpleBounds(SimpleBounds):
                 
-                    if SimpleBounds[0] <  SimpleBounds[1]:
-                        if RUN_LOUD:
-                            print('Does not cross dateline')
-                        BoundsIncDateline = False
-                    else:
-                        if RUN_LOUD:
-                            print('Bounds include the dateline. Now things are complicated')
-                        BoundsIncDateline = True
+                        if SimpleBounds[0] <  SimpleBounds[1]:
+                            if RUN_LOUD:
+                                print('Does not cross dateline')
+                            BoundsIncDateline = False
+                        else:
+                            if RUN_LOUD:
+                                print('Bounds include the dateline. Now things are complicated')
+                            BoundsIncDateline = True
                         
-                    ExpandedSimpleBounds = SimpleBounds.copy()
-                    ExpandedSimpleBounds.append(BoundsIncDateline)
+                        ExpandedSimpleBounds = SimpleBounds.copy()
+                        ExpandedSimpleBounds.append(BoundsIncDateline)
+                        
+                        self.SimpleBounds = ExpandedSimpleBounds
                     
+                    else:
+                        raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds not valid should be WESN, received {}'.format(SimpleBounds))
                 else:
-                    raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds not valid should be WESN, received {}'.format(SimpleBounds))
+                    raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds should be list of len 4, received {} of type {} and len {}'.format(SimpleBounds, type(SimpleBounds), len(SimpleBounds)))
             else:
-                raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds should be list of len 4, received {} of type {} and len {}'.format(SimpleBounds, type(SimpleBounds), len(SimpleBounds)))
-        else:
-            raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds should be list of len 4, received {} of type {}'.format(SimpleBounds, type(SimpleBounds)))
+                raise InitInputError("SimpleBounds",SimpleBounds,'ERROR SHEDSrivParser class init - SimpleBounds should be list of len 4, received {} of type {}'.format(SimpleBounds, type(SimpleBounds)))
 
+        else: # if SimpleBounds is None
+            self.SimpleBounds = None
+        
 
 
         #self.RunLoud = RunLoud         # Already done
@@ -212,7 +244,7 @@ class SHEDSrivParser:
         self.ThresholdLow = ThresholdLow
         self.PenColour = PenColour
         self.PenWidth = PenWidth
-        self.SimpleBounds = ExpandedSimpleBounds
+        #self.SimpleBounds = ExpandedSimpleBounds
         self.BoundsFile = BoundsFile
         self.InputFile = InputFile
         self.OutputFile = OutputFile
@@ -242,6 +274,8 @@ class SHEDSrivParser:
             self.SegmentHeaderIsSimple = True
         else:
             self.SegmentHeaderIsSimple = False
+        
+        self.FileStats = None
         
         # end init
     
@@ -656,7 +690,6 @@ class SHEDSrivParser:
                 #  Output a new segment header > with proper -W pen options
                 # If the count is out of threshold, skip this segment and look for the next One
                 if self.UpstreamCellsWithinLimits(UpstreamCells):
-                    CountSegmentsCopied += 1
                     SkipThisSegment = False
                     AboutToCopyFirstSegmentLine = True
             
@@ -696,6 +729,7 @@ class SHEDSrivParser:
                     Lon = float(Lon)
         
                     if self.CheckBounds(Lat,Lon):
+                        CountSegmentsCopied += 1
             
                         if self.SegmentHeaderIsSimple:
                             OutFile.write(">\n")
@@ -707,8 +741,9 @@ class SHEDSrivParser:
                     else:
                         SkipThisSegment = True
                 
-                # else no bounding is set
+                # else no bounding is set so write the header and first line
                 else:
+                    CountSegmentsCopied += 1
                     AboutToCopyFirstSegmentLine = False
             
                     if self.SegmentHeaderIsSimple:
@@ -734,6 +769,12 @@ class SHEDSrivParser:
         # Close input and output files at EOF
         InFile.close()
         OutFile.close()
+        
+        self.FileStats = {'InFileLineCount':CountLines,
+                            'InFileSegmentCount':CountSegments,
+                            'OutputSegmentCount':CountSegmentsCopied,
+                            'InFileMinUpstreamCells':SmallestUpstreamCells,
+                            'InFileMaxUpstreamCells':LargestUpstreamCells}
 
         if self.RunLoud:
             print("\n\n")
