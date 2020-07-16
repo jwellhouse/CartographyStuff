@@ -191,6 +191,37 @@ class LakesParser:
                     'Wshd_area',
                     'Pour_long',
                     'Pour_lat']
+        
+    HEADER_TYPES = ['integer',
+                    'string',
+                    'string',
+                    'string',
+                    'string',
+                    'integer',
+                    'integer',
+                    'double',
+                    'double',
+                    'double',
+                    'double',
+                    'double',
+                    'integer',
+                    'double',
+                    'double',
+                    'double',
+                    'integer',
+                    'double',
+                    'double',
+                    'double',
+                    'double']
+    
+    # These are keys: inputs to init and values: functions to call to test them
+    NUMERIC_TESTER_DICT = {'AreaMin':'LakeMatchesAreaMin',
+                        'AreaMax':'LakeMatchesAreaMax'}
+                        
+    STRING_TESTER_DICT = {'LakeName':'LakeMatchesName',
+                        'LakeNameFile':'LakeMatchesNameFile',
+                        'CountryName':'LakeMatchesCountry',
+                        'CountryNameFile':'LakeMatchesCountryFile'}
                         
     def __init__(self, InputFile,
                     OutputFile,
@@ -223,6 +254,12 @@ class LakesParser:
         if (os.path.exists(OutputFile)) and (Overwrite is not True):
             raise InitInputError('OutputFile', OutputFile, 'Output file {}  - exists \nUse -o to overwrite '.format(OutputFile))
         
+        if SkipIslands is True:
+            if RunLoud:
+                print("Skipping all islands")
+        else:
+            SkipIslands = False
+        
         # Lake area min and max
         if (AreaMax is not None) and (RunLoud):
             print("Lake AreaMax set to ", AreaMax)
@@ -233,6 +270,8 @@ class LakesParser:
             if AreaMax < AreaMin:
                 raise InitInputError('AreaMax AreaMin', [AreaMin,AreaMax], "ERROR - AreaMin {} larger than AreaMax {}. If you don't want an output, don't run the program!".format(AreaMin,AreaMax))
     
+        BoundsTesterToRun = None
+        TestBounds = False
         if SimpleBounds is not None:
             try:
                 DatelineCrossed = self.BoundsDatelineCheck(SimpleBounds, Verbose=RunLoud)
@@ -245,6 +284,9 @@ class LakesParser:
                 raise
             
             SimpleBounds.append(DatelineCrossed)
+            BoundsTesterToRun = 'LakeMatchesBoundsSimple'
+            TestBounds = True
+            
     
         if BoundsFile is not None:
             if os.path.exists(BoundsFile):
@@ -252,17 +294,108 @@ class LakesParser:
                     print(BoundsFile,'  - exists')
             else:
                 raise InitInputError('BoundsFile', BoundsFile, 'ERROR - No bounds file found - {}'.format(BoundsFile))
+            
+            # Temp 
+            self.BoundsList = []
+            # TODO Move bounds file to list of lists
+            
+            BoundsTesterToRun = 'LakeMatchesBoundsList'
+            TestBounds = True
+        
+        self.TestBounds = TestBounds
         
         # TODO Validate bounds File using BoundsDatelineCheck
         
+        # TODO make certain all the ints are ints floats are floats and strings are strings
+        #  Use allowed inputs const. Turn it into a dictionary with names as keys and types as values
+        
+        # TODO append simple bounds to bounds file list if both exist
+        
+        # None of this works exec('{} = {}.lower()'.format(key,key)) does not work
+#         print(self.LakeName)
+#         print(LakeName)
+#         Convert search strings to lowercase
+#         For example, lake names become lower case. Test functions convert as well so we are doing a case insensitive search.
+#         CountryName=CountryName.lower() but in a loop that I don't have to update when new parameters are added
+#         for key in self.STRING_TESTER_DICT:
+#             if 'File' not in key:
+#                 if eval(key) is not None:
+#                     
+#                     exec('{} = {}.lower()'.format(key,key))
+#                     print('{} = {}.lower()'.format(key,key))
+#         
+#         print(locals())
+#         print(locals()['LakeName'])
+#         print(locals()['LakeName'].lower())
+#         
+#         print(getattr(locals(),'LakeName'))
+#         locals()['LakeName'] = locals()['LakeName'].lower()
+#         LakeName = LakeName.lower()
+#         print(self.LakeName)
+#         print(LakeName)
+#         print(locals()['LakeName'])
+#         exec('self.{} = {}.lower()'.format('LakeName','LakeName'))
+#         print(self.LakeName)
+
+        
+        NumericTestersToRun = []
+        StringTestersToRun = []
         # Save the inputs to self.<input>
         for Input in self.ALLOWED_INPUTS:
-            exec('self.{} = {}'.format(Input,Input))
+            # For strings, convert to lowercase
+            if isinstance(eval(Input), str):
+                exec('self.{} = {}.lower()'.format(Input,Input))
+            else: # Not a string
+                exec('self.{} = {}'.format(Input,Input))
             if RunLoud:
                 print('Set self.{} = {}'.format(Input,eval('self.{}'.format(Input))))
+                
+            # If some value for Input was set, add to the appropriate list to run the test
+            if eval('{} is not None'.format(Input)):
+                if Input in self.NUMERIC_TESTER_DICT.keys():
+                    NumericTestersToRun.append(self.NUMERIC_TESTER_DICT[Input])
+                if Input in self.STRING_TESTER_DICT.keys():
+                    StringTestersToRun.append(self.STRING_TESTER_DICT[Input])
         
+        self.NumericTestersToRun = NumericTestersToRun
+        self.StringTestersToRun = StringTestersToRun
+        
+        
+        if RunLoud:
+            print('Running these tests:')
+            print(BoundsTesterToRun)
+            print(StringTestersToRun)
+            print(NumericTestersToRun)
+            
+        
+        if NumericTestersToRun:
+            self.RunNumericTesters = True
+        else:
+            self.RunNumericTesters = False
+        if StringTestersToRun:
+            self.RunStringTesters = True
+        else:
+            self.RunStringTesters = False
+
+            
         # Temp
-        self.HeaderElementsOfInterest = [1, 19, 20]
+        # TODO implement
+        self.HeaderElementsOfInterest = range(0,21)
+        #self.HeaderElementsOfInterest = [1,3,19,20]
+        # SearchIndex gives the places where the attribute of interest may be found
+        #  in the contracted line list
+        # Pour_long_SearchIndex is for Pour_long. Pour_lat will be at Pour_long_SearchIndex+1
+        self.Pour_long_SearchIndex = 19
+        self.Lake_area_SearchIndex = 7
+        self.Lake_name_SearchIndex = 1
+        self.Country_SearchIndex = 2
+        
+        self.HeaderListSubset = [self.HEADER_ORDER[i] for i in self.HeaderElementsOfInterest]
+        self.HeaderTypeListSubset = [self.HEADER_TYPES[i] for i in self.HeaderElementsOfInterest]
+        self.ElementsOfInterestCount = len(self.HeaderElementsOfInterest)
+        self.RangeElementsOfInterestCount = range(self.ElementsOfInterestCount)
+        print(self.HeaderListSubset)
+        print(self.HeaderTypeListSubset)
         
     # Functions to check the lake header against parameters
     def ExtractLakeHeader(self, line):
@@ -270,39 +403,150 @@ class LakesParser:
         Takes a lake header line and returns a dictionary of those header elements of interest.
         """
         LineElements = line[4:].split(sep='|')
-        print(line)
-        print(LineElements)
 
-        LineElementsSubset = [LineElements for i in self.HeaderElementsOfInterest]
-        HeaderListSubset = [self.HEADER_ORDER for i in self.HeaderElementsOfInterest]
+        # Very much does not do what I want it to
+        LineElementsSubset = [LineElements[i] for i in self.HeaderElementsOfInterest]
         
+        
+        #a[:] = map(lambda x: -x, a)
+        #new_items = [x if x % 2 else None for x in items]
+        
+        #numbers1 = [1, 2, 3] 
+        #numbers2 = [4, 5, 6] 
+  
+        #result = map(lambda x, y: x + y, numbers1, numbers2) 
+        #print(result)
+        #print(type(result))
         # Does not work
         #HeaderDict = dict(zip(HeaderListSubset, LineElementsSubset))
         
         #print(HeaderDict)
         #return HeaderDict
+        
+        for i in self.RangeElementsOfInterestCount:
+
+            if 'int' in self.HeaderTypeListSubset[i]:
+                LineElementsSubset[i] = int(LineElementsSubset[i])
+            elif 'doub' in self.HeaderTypeListSubset[i]:
+                LineElementsSubset[i] = float(LineElementsSubset[i])
+            elif 'str' in self.HeaderTypeListSubset[i]:
+                LineElementsSubset[i] = LineElementsSubset[i].strip('"\' \n')
+        
+        #return LineElementsSubset
+        self.LakeAtributesList = LineElementsSubset
+        
+    def LakeMatchesBoundsSimple(self):
+        #print('LakeMatchesBoundsSimple')
+        #self.LakeAtributesList
+        #self.SimpleBounds
+        # Pour_long_SearchIndex is for Pour_long. Pour_lat will be at Pour_long_SearchIndex+1
+        #self.Pour_long_SearchIndex = 20
+
+#             Wlimit = Bounds[0]
+#             Elimit = Bounds[1]
+#             Slimit = Bounds[2]
+#             Nlimit = Bounds[3]
+#             BoundsIncDateline = Bounds[4]
+
+        # TODO use not and eliminate the else and pass
+        #if (Lat <= Nlimit) and (Lat >= Slimit):
+        if (self.LakeAtributesList[self.Pour_long_SearchIndex+1] <= self.SimpleBounds[3]) and (self.LakeAtributesList[self.Pour_long_SearchIndex+1] >= self.SimpleBounds[2]):
+            # In the limit, check longitude 
+            pass
+        else:
+            #print("Lat out of limit")
+            return False
+
+        # if not BoundsIncDateline:
+        if not self.SimpleBounds[4]:
+            #if (Lon <= Elimit) and (Lon >= Wlimit):
+            if (self.LakeAtributesList[self.Pour_long_SearchIndex] <= self.SimpleBounds[1]) and (self.LakeAtributesList[self.Pour_long_SearchIndex] >= self.SimpleBounds[0]):
+                return True
+            else:
+                return False
+        else:
+            # split across International Dateline
+            #if (Lon >= Wlimit) and (Lon <= 180.0):
+            if (self.LakeAtributesList[self.Pour_long_SearchIndex] >= self.SimpleBounds[0]) and (self.LakeAtributesList[self.Pour_long_SearchIndex] <= 180.0):
+                return True
+            #elif (Lon >= -180.0) and (Lon <= Elimit):
+            elif (self.LakeAtributesList[self.Pour_long_SearchIndex] >= -180.0) and (self.LakeAtributesList[self.Pour_long_SearchIndex] <= self.SimpleBounds[1]):
+                return True
+            else:
+                return False
+                
+        #return True
+    
+    # TODO Impliment
+    def LakeMatchesBoundsList(self):
         return True
     
     def LakeMatchesBounds(self):
+        #self.BoundsTesterToRun
+        #getattr(self, self.BoundsTesterToRun)()
+        if self.SimpleBounds:
+            return self.LakeMatchesBoundsSimple()
+        # TODO make this efficent by assuming one or the other. second test (elif) is just for testing
+        elif self.BoundsList:
+            return self.LakeMatchesBoundsList()
+        else:
+            print('Crap')
+            
         return True
     
-    def ILakeMatchesArea(self):
-        return True
+    def LakeMatchesAreaMin(self):
+        if self.LakeAtributesList[self.Lake_area_SearchIndex] >= self.AreaMin:
+            return True
+        # Else
+        return False
+        
+    def LakeMatchesAreaMax(self):
+        if self.LakeAtributesList[self.Lake_area_SearchIndex] <= self.AreaMax:
+            return True
+        # Else
+        return False
     
     def LakeMatchesName(self):
+        if self.LakeName in self.LakeAtributesList[self.Lake_name_SearchIndex].lower():
+            return True
+        # Else
+        return False
+    
+    # TODO Impliment
+    def LakeMatchesNameFile(self):
         return True
         
     def LakeMatchesCountry(self):
+        if self.CountryName in self.LakeAtributesList[self.Country_SearchIndex].lower():
+            return True
+        # Else
+        return False
+    
+    # TODO Impliment
+    def LakeMatchesCountryFile(self):
         return True
         
     
     def LakeMatchesAllText(self):
+        for TesterFunction in self.StringTestersToRun:
+            if not getattr(self,TesterFunction)():
+            #if not eval('self.{}()'.format(TesterFunction)):
+                # Must match all so we break out as soon as it fails
+                return False
         return True
+
         
     def LakeMatchesAllNumbers(self):
         """
         All numerical limits except bounds
         """
+        #print('LakeMatchesAllNumbers')
+        
+        for TesterFunction in self.NumericTestersToRun:
+            if not getattr(self,TesterFunction)():
+            #if not eval('self.{}()'.format(TesterFunction)):
+                # Must match all so we break out as soon as it fails
+                return False
         return True
     
     def ReturnTrue(self, *args):
@@ -477,24 +721,60 @@ class LakesParser:
                     # Its a new Lake
                     LakeHeaderFound = True
                     CountLakes += 1
+                    
+                    #Actually count of islands in the last lake
                     if CountIslandsThisLake > MostIslandsInLake:
                         MostIslandsInLake = CountIslandsThisLake
-                        CountIslandsThisLake = 0
+                    CountIslandsThisLake = 0
                     
-                    dict = self.ExtractLakeHeader(line)
+                    # self.LakeAtributesList follows the order of self.HeaderListSubset
+                    # self.LakeAtributesList is produced by self.ExtractLakeHeader(line)
+                    self.ExtractLakeHeader(line)
                     
-                    # temp
-                    #OutFile.write(">\n")
-                    #OutFile.write(line)
+                    # Run the tests Must match All
+                    SkipThisLake = False
+                    
+                    if self.TestBounds:
+                        if not self.LakeMatchesBounds():
+                            SkipThisLake = True
+                
+                    # and not SkipThisLake because if it is already set, no need for further tests
+                    if self.RunNumericTesters and not SkipThisLake:
+                        if not self.LakeMatchesAllNumbers():
+                            SkipThisLake = True
+
+                    if self.RunStringTesters and not SkipThisLake:
+                        if not self.LakeMatchesAllText():
+                            SkipThisLake = True
+                    
+                    
+                    if not SkipThisLake:
+                        SkipUntilHeader = False
+                        OutFile.write(">\n")
+                        OutFile.write(line)
+                        CountLakesCopied += 1
+                    else:
+                        SkipUntilHeader = True
+                    # TODO work on the skipping logic
+                        
                 elif line.startswith('# @H'):
                     # Its an island
                     IslandHeaderFound = True
                     CountTotalIslands += 1
                     CountIslandsThisLake += 1
                     
-                    # temp
-                    OutFile.write(">\n")
-                    OutFile.write(line)
+                    # TODO SkipIslandsInThisLake
+                    
+                    if not SkipThisLake:
+                        if not self.SkipIslands:
+                            SkipUntilHeader = False
+                            OutFile.write(">\n")
+                            OutFile.write(line)
+                            CountTotalIslandsCopied += 1
+                        else:
+                            SkipUntilHeader = True
+                    else:
+                        SkipUntilHeader = True
                 else:
                     print("Warning odd header after > {}. Continuing.".format(line))
 
@@ -525,7 +805,7 @@ class LakesParser:
 #                     SkipThisSegment = True
             
             # Skip line if only white space (\n etc)
-            if line.isspace():
+            elif line.isspace():
                 pass
     
             # Skip segment headers and set flag to add them back.
@@ -839,6 +1119,9 @@ if __name__ == "__main__":
         print('Exiting with code 15')
         exit(15)
     
+    # Temp
+    import time
+    start_time = time.time()
     try:
         ParserObj.ParseLAKES()
     except InitInputError as err:
@@ -853,6 +1136,17 @@ if __name__ == "__main__":
         print(err.message)
         print('Exiting with code 16')
         exit(16)
+    
+    # Temp
+    print("--- %s seconds ---" % (time.time() - start_time))
         
     if not RUN_SILENT:
         print(ParserObj.FileStats)
+
+#python3 ParseSHEDSLake.py /Volumes/ExtWorking/Cartography/HydroSHEDS/HydroLAKES_polys_v10_shp/HydroLAKES_polys_v10_TempConv.gmt /Volumes/ExtWorking/Cartography/testo.gmt -AL 5  -v -o -B 46 48 44 46
+
+# # Time Records
+#   Time (s)    Action
+#   27.89       Simple Bounds - 385 lakes
+#   27.26       Simple Bounds + area min - 7 lakes (getattr)
+#   27.30       Simple Bounds + area min - 7 lakes (eval)
