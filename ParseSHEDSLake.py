@@ -40,7 +40,7 @@ TheParser.ParseLakes()
 See ParseSHEDSLake.LakesParser.__doc__ for details.
 
 Author: Joseph Wellhouse
-Last Update: 2020-07-14
+Last Update: 2020-07-16
 """
 
 #import argparse # Used and imported in __main__ only
@@ -79,10 +79,12 @@ import subprocess
 # TODO ignore capitalization in names
 # TODO Spell check
 
-__version__ = "0.0.1"
+# To add new parameter to check
+#  
+
+__version__ = "0.0.2"
 __author__ = "Joseph Wellhouse"
 
-SUPPORTED_INPUT_EXTENSIONS = ["shp","gmt"]
 
 class InitInputError(Exception):
     """
@@ -98,6 +100,7 @@ class InitInputError(Exception):
         self.var = var
         self.message = message
         self.InputRec = InputRec
+        super(InitInputError, self).__init__(message)
         
 class BoundsInconsistentError(InitInputError):
     """
@@ -112,7 +115,15 @@ class BoundsInconsistentError(InitInputError):
         super().__init__(Directions, InputRec, message)
         self.Directions = Directions
 
+
 class ProcessingError(Exception):
+    """
+    Exception raised for errors while processing the input file.
+    Attributes:
+        Line - line num
+        message - explanation of the error
+        CauseException = original exception, if any. may be None
+    """
     #filename = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
     #print(exc_type, fname, exc_tb.tb_lineno)
 
@@ -123,6 +134,7 @@ class ProcessingError(Exception):
         self.Line = Line
         self.message = message
         self.CauseException = CauseException
+        super(ProcessingError, self).__init__(message)
 
 class LakesParser:
     """
@@ -153,21 +165,23 @@ class LakesParser:
     # TODO update doc string above
     # TODO Implement OutputForHistogram (Input is name atribute of interest - lake area etc)
     
-    ALLOWED_INPUTS = ['InputFile',
-                        'OutputFile',
-                        'SimpleBounds',
-                        'BoundsFile',
-                        'AreaMin',
-                        'AreaMax',
-                        'LakeName',
-                        'LakeNameFile',
-                        'CountryName',
-                        'CountryNameFile',
-                        'SkipIslands',
-                        'RunLoud', 
-                        'RunSilent', 
-                        'OutputForHistogram', 
-                        'Overwrite']
+    HYDROLAKES_NOTICE = "\n\nThe HydroLAKES license requires atribution. \nSee tecnincal documentation at https://www.hydrosheds.org/page/hydrolakes \n\n"
+    
+    ALLOWED_INPUTS = {'InputFile':[str,None],
+                        'OutputFile':[str,None],
+                        'SimpleBounds':[list,'Pour_long'],
+                        'BoundsFile':[str,'Pour_long'],
+                        'AreaMin':[float,'Lake_area'],
+                        'AreaMax':[float,'Lake_area'],
+                        'LakeName':[str,'Lake_name'],
+                        'LakeNameFile':[str,'Lake_name'],
+                        'CountryName':[str,'Country'],
+                        'CountryNameFile':[str,'Country'],
+                        'SkipIslands':[bool,None],
+                        'RunLoud':[bool,None], 
+                        'RunSilent':[bool,None], 
+                        'OutputForHistogram':[bool,None], 
+                        'Overwrite':[bool,None]}
     
     # TODO verify on reading file that this matches
     HEADER_ORDER = ['Hylak_id',
@@ -222,6 +236,8 @@ class LakesParser:
                         'LakeNameFile':'LakeMatchesNameFile',
                         'CountryName':'LakeMatchesCountry',
                         'CountryNameFile':'LakeMatchesCountryFile'}
+    
+    SUPPORTED_INPUT_EXTENSIONS = ["shp", "gmt"]
                         
     def __init__(self, InputFile,
                     OutputFile,
@@ -239,7 +255,18 @@ class LakesParser:
                     OutputForHistogram=False, 
                     Overwrite=False):
                     
-        global SUPPORTED_INPUT_EXTENSIONS
+        
+        # Check input types
+        for InputName, InputType in self.ALLOWED_INPUTS.items():
+            if eval(InputName) is not None:
+                if isinstance(eval(InputName), InputType[0]):
+                    if RunLoud:
+                        print("{} has correct type: {}".format(InputName,InputType[0]))
+                else:
+                    raise InitInputError(InputName, eval(InputName), 'ERROR - Not correct type for input {} = {} - Expected {} or None, received {}'.format(InputName,eval(InputName),InputType[0],type(eval(InputName))))
+        
+        if not RunSilent:
+            print(self.HYDROLAKES_NOTICE)
         
         # Check for infile, outfile
         if RunLoud:
@@ -377,25 +404,57 @@ class LakesParser:
         else:
             self.RunStringTesters = False
 
-            
-        # Temp
-        # TODO implement
-        self.HeaderElementsOfInterest = range(0,21)
-        #self.HeaderElementsOfInterest = [1,3,19,20]
+        
+        # For speed, and added complexity, only the elements of interest from the header are saved into a list.
+        # To find the correct place in the list a set of variables of the form self.<Info of Interest>_SearchIndex are created.
+        # Thus it is like a really complicated dictionary but it should run faster. 
+
+
         # SearchIndex gives the places where the attribute of interest may be found
         #  in the contracted line list
         # Pour_long_SearchIndex is for Pour_long. Pour_lat will be at Pour_long_SearchIndex+1
-        self.Pour_long_SearchIndex = 19
-        self.Lake_area_SearchIndex = 7
-        self.Lake_name_SearchIndex = 1
-        self.Country_SearchIndex = 2
+        
+        WorkingListOfNeededIndices = []
+        for InputName, NeededInfo in self.ALLOWED_INPUTS.items():
+            # If we received parameters and will thus need the header info to check against it
+            if eval(InputName) is not None and NeededInfo[1] is not None:
+                i = self.HEADER_ORDER.index(NeededInfo[1])
+                WorkingListOfNeededIndices.append(i)
+                
+                # Special case - lat lon
+                if NeededInfo[1] in 'Pour_long':
+                    WorkingListOfNeededIndices.append(i+1)
+
+        if WorkingListOfNeededIndices:
+            self.HeaderElementsOfInterest = sorted(set(WorkingListOfNeededIndices))
+        else:
+            self.HeaderElementsOfInterest = []
+        
+        if RunLoud:
+            print("These are the header elements of interest")
+            print(self.HeaderElementsOfInterest)
+    
         
         self.HeaderListSubset = [self.HEADER_ORDER[i] for i in self.HeaderElementsOfInterest]
         self.HeaderTypeListSubset = [self.HEADER_TYPES[i] for i in self.HeaderElementsOfInterest]
-        self.ElementsOfInterestCount = len(self.HeaderElementsOfInterest)
-        self.RangeElementsOfInterestCount = range(self.ElementsOfInterestCount)
-        print(self.HeaderListSubset)
-        print(self.HeaderTypeListSubset)
+        self.ElementsOfInterestCount = len(self.HeaderElementsOfInterest) 
+        self.RangeElementsOfInterestCount = range(self.ElementsOfInterestCount) 
+        if RunLoud:
+            print("These are the header list subsets and type subsets")
+            print(self.HeaderListSubset)
+            print(self.HeaderTypeListSubset)
+        
+        # Now build the _SearchIndex variables talked about above
+        for InputName, NeededInfo in self.ALLOWED_INPUTS.items():
+            if eval(InputName) is not None and NeededInfo[1] is not None:
+                
+                j = self.HeaderListSubset.index(NeededInfo[1])
+                
+                exec('self.{}_SearchIndex = {}'.format(NeededInfo[1],j))
+                if RunLoud:
+                    print('self.{}_SearchIndex = {}'.format(NeededInfo[1],j))
+                    print(eval('self.{}_SearchIndex '.format(NeededInfo[1])))
+        
         
     # Functions to check the lake header against parameters
     def ExtractLakeHeader(self, line):
@@ -654,15 +713,16 @@ class LakesParser:
                 raise ProcessingError(exc_traceback.tb_lineno, '', "ERROR non zero exit {} running {}".format(ExitStatus,CommandString))
     
         
-        elif (InputExtension == "gmt") or (InputExtension == "GMT"):
+        #elif (InputExtension == "gmt") or (InputExtension == "GMT"):
+        elif InputExtension in ('gmt', 'GMT'):
             if self.RunLoud:
                 print("File type is gmt")
     
             self.InFileGMTtxt = self.InputFile
     
         else:
-            print("\nError input file type not supported. \nSupported extensions are: ",SUPPORTED_INPUT_EXTENSIONS)
-            raise InitInputError('InputFile', self.InputFile, 'InputFile extension not supported {}. Supported types {}'.format(InputExtension, SUPPORTED_INPUT_EXTENSIONS))
+            print("\nError input file type not supported. \nSupported extensions are: ",self.SUPPORTED_INPUT_EXTENSIONS)
+            raise InitInputError('InputFile', self.InputFile, 'InputFile extension not supported {}. Supported types {}'.format(InputExtension, self.SUPPORTED_INPUT_EXTENSIONS))
         
         
     # Main Loop Function
@@ -889,7 +949,6 @@ class LakesParser:
                             'CountTotalIslands':CountTotalIslands,
                             'MostIslandsInLake':MostIslandsInLake,
                             'CountLines':CountLines,
-                            'MostIslandsInLake':MostIslandsInLake,
                             'SmallestLake':SmallestLake,
                             'LargestLake':LargestLake,
                             'CountLakesCopied':CountLakesCopied,
@@ -980,7 +1039,7 @@ if __name__ == "__main__":
                                         epilog='All files except InputFile and OutputFile will be loaded in memory. Keep them small unless you want to fill your RAM.')
     
     parser.add_argument("InputFile", action="store", nargs=1, 
-                        help="Name of input file. Either relative or full path. Supports: {}".format(SUPPORTED_INPUT_EXTENSIONS))
+                        help="Name of input file. Either relative or full path. Supports: {}".format(LakesParser.SUPPORTED_INPUT_EXTENSIONS))
     parser.add_argument("OutputFile", action="store", nargs=1, 
                         help="Name of output file. Either relative or full path. Extension will be .gmt")
                         
@@ -1030,7 +1089,7 @@ if __name__ == "__main__":
     # Bring in flags and run some initial tests
     if args.detailedinfo:
         print(__doc__)
-        exit(0)
+        sys.exit(0)
     
     if args.verbose is True:
         RUN_LOUD = True
@@ -1048,7 +1107,7 @@ if __name__ == "__main__":
     
     if not RUN_SILENT:
         print("\nParse SHEDS Lake Starting\n\n")
-        print("The HydroLAKES license requires atribution. \nSee tecnincal documentation at https://www.hydrosheds.org/page/hydrolakes \n\n")
+        print(LakesParser.HYDROLAKES_NOTICE)
 
     if (args.Overwrite is True):
         OVERWRITE_FILES = True
@@ -1068,20 +1127,20 @@ if __name__ == "__main__":
     # Special cases: These names do not match between the argparser and LakesParser init 
     #print(LakesParser.ALLOWED_INPUTS)
     InputsList = LakesParser.ALLOWED_INPUTS.copy()
-    InputsList.remove('RunLoud')
+    InputsList.pop('RunLoud')
     RunLoud = RUN_LOUD
-    InputsList.remove('RunSilent')
+    InputsList.pop('RunSilent')
     RunSilent = RUN_SILENT
-    InputsList.remove('Overwrite')
+    InputsList.pop('Overwrite')
     Overwrite = OVERWRITE_FILES
-    InputsList.remove('SkipIslands')
+    InputsList.pop('SkipIslands')
     #SkipIslands = SkipIslands above
     
     # TODO implement OutputForHistogram
-    InputsList.remove('OutputForHistogram')
+    InputsList.pop('OutputForHistogram')
     
     # Bounds is a list so [0] would cause issues
-    InputsList.remove('SimpleBounds')
+    InputsList.pop('SimpleBounds')
     SimpleBounds = args.Bounds
     
     for Input in InputsList:
@@ -1117,7 +1176,7 @@ if __name__ == "__main__":
         print("ERROR - FAIL")
         print(err.message)
         print('Exiting with code 15')
-        exit(15)
+        sys.exit(15)
     
     # Temp
     import time
@@ -1128,20 +1187,22 @@ if __name__ == "__main__":
         print("ERROR - FAIL")
         print(err.message)
         print('Exiting with code 15')
-        exit(15)
+        sys.exit(15)
     except ProcessingError as err:
         print("ERROR - FAIL")
         print(err.Line)
         print(err.CauseException)
         print(err.message)
         print('Exiting with code 16')
-        exit(16)
+        sys.exit(16)
     
     # Temp
     print("--- %s seconds ---" % (time.time() - start_time))
         
     if not RUN_SILENT:
         print(ParserObj.FileStats)
+    
+    sys.exit(0)
 
 #python3 ParseSHEDSLake.py /Volumes/ExtWorking/Cartography/HydroSHEDS/HydroLAKES_polys_v10_shp/HydroLAKES_polys_v10_TempConv.gmt /Volumes/ExtWorking/Cartography/testo.gmt -AL 5  -v -o -B 46 48 44 46
 
