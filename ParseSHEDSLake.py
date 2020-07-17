@@ -80,9 +80,16 @@ import subprocess
 # TODO Spell check
 
 # To add new parameter to check
-#  
+#  Add option to arg parse
+#  Add corresponding variable to init and call to init in main
+#  Add to ALLOWED_INPUTS
+#  Add to NUMERIC_TESTER_DICT or STRING_TESTER_DICT
+#  Add function LakeMatches*
+#  Update class doc string
 
-__version__ = "0.0.2"
+# TODO impliment save stats  ReportFullStats
+
+__version__ = "0.0.3"
 __author__ = "Joseph Wellhouse"
 
 
@@ -152,9 +159,17 @@ class LakesParser:
     Optional inputs:    
                         SimpleBounds=None,
                         BoundsFile=None,
+                        AreaMin=None,
+                        AreaMax=None,
+                        LakeName=None,
+                        LakeNameFile=None,
+                        CountryName=None,
+                        CountryNameFile=None,
+                        ContinentName=None,
+                        SkipIslands=False,
                         RunLoud=False, 
                         RunSilent=False, 
-                        OutputForHistogram=False, 
+                        ReportFullStats=False,
                         Overwrite=False
                         
     Run <LakesParser object name>.ParseLAKES() after instantiating.
@@ -167,6 +182,7 @@ class LakesParser:
     
     HYDROLAKES_NOTICE = "\n\nThe HydroLAKES license requires atribution. \nSee tecnincal documentation at https://www.hydrosheds.org/page/hydrolakes \n\n"
     
+    # Inputs that init receives are the keys. Values are a list of type expected and header element used.
     ALLOWED_INPUTS = {'InputFile':[str,None],
                         'OutputFile':[str,None],
                         'SimpleBounds':[list,'Pour_long'],
@@ -177,10 +193,12 @@ class LakesParser:
                         'LakeNameFile':[str,'Lake_name'],
                         'CountryName':[str,'Country'],
                         'CountryNameFile':[str,'Country'],
+                        'ContinentName':[str,'Continent'],
                         'SkipIslands':[bool,None],
                         'RunLoud':[bool,None], 
                         'RunSilent':[bool,None], 
                         'OutputForHistogram':[bool,None], 
+                        'ReportFullStats':[bool,None],
                         'Overwrite':[bool,None]}
     
     # TODO verify on reading file that this matches
@@ -235,7 +253,8 @@ class LakesParser:
     STRING_TESTER_DICT = {'LakeName':'LakeMatchesName',
                         'LakeNameFile':'LakeMatchesNameFile',
                         'CountryName':'LakeMatchesCountry',
-                        'CountryNameFile':'LakeMatchesCountryFile'}
+                        'CountryNameFile':'LakeMatchesCountryFile',
+                        'ContinentName':'LakeMatchesContinent'}
     
     SUPPORTED_INPUT_EXTENSIONS = ["shp", "gmt"]
                         
@@ -249,10 +268,12 @@ class LakesParser:
                     LakeNameFile=None,
                     CountryName=None,
                     CountryNameFile=None,
+                    ContinentName=None,
                     SkipIslands=False,
                     RunLoud=False, 
                     RunSilent=False, 
                     OutputForHistogram=False, 
+                    ReportFullStats=False,
                     Overwrite=False):
                     
         
@@ -415,15 +436,18 @@ class LakesParser:
         # Pour_long_SearchIndex is for Pour_long. Pour_lat will be at Pour_long_SearchIndex+1
         
         WorkingListOfNeededIndices = []
-        for InputName, NeededInfo in self.ALLOWED_INPUTS.items():
-            # If we received parameters and will thus need the header info to check against it
-            if eval(InputName) is not None and NeededInfo[1] is not None:
-                i = self.HEADER_ORDER.index(NeededInfo[1])
-                WorkingListOfNeededIndices.append(i)
+        if not ReportFullStats:
+            for InputName, NeededInfo in self.ALLOWED_INPUTS.items():
+                # If we received parameters and will thus need the header info to check against it
+                if eval(InputName) is not None and NeededInfo[1] is not None:
+                    i = self.HEADER_ORDER.index(NeededInfo[1])
+                    WorkingListOfNeededIndices.append(i)
                 
-                # Special case - lat lon
-                if NeededInfo[1] in 'Pour_long':
-                    WorkingListOfNeededIndices.append(i+1)
+                    # Special case - lat lon
+                    if NeededInfo[1] in 'Pour_long':
+                        WorkingListOfNeededIndices.append(i+1)
+        else: #ReportFullStats
+            WorkingListOfNeededIndices = range(len(self.HEADER_ORDER))
 
         if WorkingListOfNeededIndices:
             self.HeaderElementsOfInterest = sorted(set(WorkingListOfNeededIndices))
@@ -463,7 +487,7 @@ class LakesParser:
         """
         LineElements = line[4:].split(sep='|')
 
-        # Very much does not do what I want it to
+        # Only the elements of interest are copied. Order is known.
         LineElementsSubset = [LineElements[i] for i in self.HeaderElementsOfInterest]
         
         
@@ -565,6 +589,7 @@ class LakesParser:
         # Else
         return False
     
+    # TODO implement promised '!' results in empty string lake names only
     def LakeMatchesName(self):
         if self.LakeName in self.LakeAtributesList[self.Lake_name_SearchIndex].lower():
             return True
@@ -584,7 +609,12 @@ class LakesParser:
     # TODO Impliment
     def LakeMatchesCountryFile(self):
         return True
-        
+    
+    def LakeMatchesContinent(self):
+        if self.ContinentName in self.LakeAtributesList[self.Continent_SearchIndex].lower():
+            return True
+        # Else
+        return False
     
     def LakeMatchesAllText(self):
         for TesterFunction in self.StringTestersToRun:
@@ -746,12 +776,19 @@ class LakesParser:
         CountTotalIslands = 0
         CountIslandsThisLake = 0
         MostIslandsInLake = 0
-        SmallestLake = 24709000
-        LargestLake = 0
         CountLakesCopied = 0
         CountTotalIslandsCopied = 0
-        SmallestLakeCopied = 24709000
-        LargestLakeCopied = 0
+        
+        if self.ReportFullStats:
+            SmallestAreaLake = 24709000
+            LargestAreaLake = 0
+            SmallestAreaLakeCopied = 24709000
+            LargestAreaLakeCopied = 0
+            DeepestLakeCopied = 0
+            HighestLakeCopied = 0
+            LargestWatershedToLakeCopied = 0
+            LargestVolumeLakeCopied = 0
+            
         
         HeaderFound = False
         LakeHeaderFound = False
@@ -782,14 +819,23 @@ class LakesParser:
                     LakeHeaderFound = True
                     CountLakes += 1
                     
+                    
+                    # self.LakeAtributesList follows the order of self.HeaderListSubset
+                    # self.LakeAtributesList is produced by self.ExtractLakeHeader(line)
+                    self.ExtractLakeHeader(line)
+                    
+                    # Stats
                     #Actually count of islands in the last lake
                     if CountIslandsThisLake > MostIslandsInLake:
                         MostIslandsInLake = CountIslandsThisLake
                     CountIslandsThisLake = 0
                     
-                    # self.LakeAtributesList follows the order of self.HeaderListSubset
-                    # self.LakeAtributesList is produced by self.ExtractLakeHeader(line)
-                    self.ExtractLakeHeader(line)
+                    if self.ReportFullStats:
+                        if self.LakeAtributesList[7] < SmallestAreaLake:
+                            SmallestAreaLake = self.LakeAtributesList[7]
+                        if self.LakeAtributesList[7] > LargestAreaLake:
+                            LargestAreaLake = self.LakeAtributesList[7]
+                    
                     
                     # Run the tests Must match All
                     SkipThisLake = False
@@ -813,9 +859,24 @@ class LakesParser:
                         OutFile.write(">\n")
                         OutFile.write(line)
                         CountLakesCopied += 1
+                        
+                        if self.ReportFullStats:
+                            if self.LakeAtributesList[7] < SmallestAreaLakeCopied:
+                                SmallestAreaLakeCopied = self.LakeAtributesList[7]
+                            if self.LakeAtributesList[7] > LargestAreaLakeCopied:
+                                LargestAreaLakeCopied = self.LakeAtributesList[7]
+                            if self.LakeAtributesList[13] > DeepestLakeCopied:
+                                DeepestLakeCopied = self.LakeAtributesList[13]
+                            if self.LakeAtributesList[16] > HighestLakeCopied:
+                                HighestLakeCopied = self.LakeAtributesList[16]
+                            if self.LakeAtributesList[17] > LargestWatershedToLakeCopied:
+                                LargestWatershedToLakeCopied = self.LakeAtributesList[17]
+                            if self.LakeAtributesList[10] > LargestVolumeLakeCopied:
+                                LargestVolumeLakeCopied = self.LakeAtributesList[10]
+                            
                     else:
                         SkipUntilHeader = True
-                    # TODO work on the skipping logic
+                    
                         
                 elif line.startswith('# @H'):
                     # Its an island
@@ -945,17 +1006,31 @@ class LakesParser:
         InFile.close()
         OutFile.close()
         
-        self.FileStats = {'CountLakes':CountLakes,
+        if self.ReportFullStats:
+            self.FileStats = {'CountLakes':CountLakes,
                             'CountTotalIslands':CountTotalIslands,
                             'MostIslandsInLake':MostIslandsInLake,
                             'CountLines':CountLines,
-                            'SmallestLake':SmallestLake,
-                            'LargestLake':LargestLake,
+                            'SmallestAreaLake':SmallestAreaLake,
+                            'LargestAreaLake':LargestAreaLake,
                             'CountLakesCopied':CountLakesCopied,
                             'CountTotalIslandsCopied':CountTotalIslandsCopied,
-                            'SmallestLakeCopied':SmallestLakeCopied,
-                            'LargestLakeCopied':LargestLakeCopied}
+                            'SmallestAreaLakeCopied':SmallestAreaLakeCopied,
+                            'LargestAreaLakeCopied':LargestAreaLakeCopied,
+                            'DeepestLakeCopied':DeepestLakeCopied,
+                            'HighestLakeCopied':HighestLakeCopied,
+                            'LargestWatershedToLakeCopied':LargestWatershedToLakeCopied,
+                            'LargestVolumeLakeCopied':LargestVolumeLakeCopied}
+        else:
+            self.FileStats = {'CountLakes':CountLakes,
+                            'CountTotalIslands':CountTotalIslands,
+                            'MostIslandsInLake':MostIslandsInLake,
+                            'CountLines':CountLines,
+                            'CountLakesCopied':CountLakesCopied,
+                            'CountTotalIslandsCopied':CountTotalIslandsCopied}
 
+
+                            
     
     @classmethod
     def BoundsDatelineCheck(self, Bounds, Verbose=False):
@@ -1059,6 +1134,9 @@ if __name__ == "__main__":
     parser.add_argument("-oi", "-si", "-OI", "-SI", "--SkipIslands", action="store_true",
                         help="Do not output island polygons. GMT will plot lakes as though there are no islands.")
                         
+    parser.add_argument("-stat", "-STAT", "--ReportFullStats", action="store_true",
+                        help="Out a full set of statistics. May take a bit longer.")
+                        
     BoundsGroup = parser.add_mutually_exclusive_group(required=False)
     BoundsGroup.add_argument("-B", "-b", "--Bounds", action="store", nargs=4, type=float, metavar=('W', 'E', 'S', 'N'),
                         help="Set limits on which lakes to output based on latitude and longitude.\nOnly the pour point will be checked. Lake parts may leave the boundry. \nUse decimal notation and - for south and west.")
@@ -1082,6 +1160,8 @@ if __name__ == "__main__":
     CountryGroup.add_argument("-CNF", "-cnf", "--CountryNameFile", action="store", nargs=1,
                             help="Only output for countries listed in CountryNameFile. The file should have one country name per line")
     
+    parser.add_argument("-CTN", "-ctn", "--ContinentName", action="store", nargs=1,
+                            help="Only output lakes in Continent ContinentName.")
     args = parser.parse_args()
     
     #print(args.LakeName)
@@ -1122,6 +1202,13 @@ if __name__ == "__main__":
             print("Skipping all islands! \n\n    Why would you do that?!?")
     else:
         SkipIslands = False
+    
+    if (args.ReportFullStats is True):
+        ReportFullStats = True
+        if RUN_LOUD:
+            print("Will report a full set of statistics.")
+    else:
+        ReportFullStats = False
         
     # Loop over input parameters and prepare to send them to the LakesParser class
     # Special cases: These names do not match between the argparser and LakesParser init 
@@ -1135,6 +1222,8 @@ if __name__ == "__main__":
     Overwrite = OVERWRITE_FILES
     InputsList.pop('SkipIslands')
     #SkipIslands = SkipIslands above
+    InputsList.pop('ReportFullStats')
+    #ReportFullStats = ReportFullStats above
     
     # TODO implement OutputForHistogram
     InputsList.pop('OutputForHistogram')
@@ -1167,10 +1256,12 @@ if __name__ == "__main__":
                                 LakeNameFile=LakeNameFile,
                                 CountryName=CountryName,
                                 CountryNameFile=CountryNameFile,
+                                ContinentName=ContinentName,
                                 SkipIslands=SkipIslands,
                                 RunLoud=RunLoud, 
                                 RunSilent=RunSilent, 
-                                OutputForHistogram=False, 
+                                OutputForHistogram=False,
+                                ReportFullStats=ReportFullStats,
                                 Overwrite=Overwrite)
     except InitInputError as err:
         print("ERROR - FAIL")
@@ -1200,7 +1291,8 @@ if __name__ == "__main__":
     print("--- %s seconds ---" % (time.time() - start_time))
         
     if not RUN_SILENT:
-        print(ParserObj.FileStats)
+        for key, value in ParserObj.FileStats.items():
+            print('{} {}'.format(key, value))
     
     sys.exit(0)
 
@@ -1211,3 +1303,4 @@ if __name__ == "__main__":
 #   27.89       Simple Bounds - 385 lakes
 #   27.26       Simple Bounds + area min - 7 lakes (getattr)
 #   27.30       Simple Bounds + area min - 7 lakes (eval)
+#   47.22       Continent North - 994072 lakes
